@@ -1,3 +1,4 @@
+import copy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -7,19 +8,34 @@ from yukarin_sosfd.utility.git_utility import get_branch_name, get_commit_id
 
 
 @dataclass
+class DatasetFileConfig:
+    lf0_glob: str
+    start_accent_list_glob: str
+    end_accent_list_glob: str
+    start_accent_phrase_list_glob: str
+    end_accent_phrase_list_glob: str
+    phoneme_list_glob: str
+    silence_glob: str
+    speaker_dict_path: Path
+
+
+@dataclass
 class DatasetConfig:
-    train_num: int
-    lf0_low: float
-    lf0_high: float
-    sampling_rate: float
-    min_sampling_length: int
-    max_sampling_length: int
+    train_file: DatasetFileConfig
+    valid_file: DatasetFileConfig
+    frame_rate: float
+    prepost_silence_length: int
+    max_sampling_length: Optional[int]
     test_num: int
     seed: int = 0
 
 
 @dataclass
 class NetworkConfig:
+    speaker_size: int
+    speaker_embedding_size: int
+    phoneme_size: int
+    phoneme_embedding_size: int
     hidden_size: int
     block_num: int
     post_layer_num: int
@@ -67,7 +83,7 @@ class Config:
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Config":
         backward_compatible(d)
-        return dataclass_utility.convert_from_dict(cls, d)
+        return dataclass_utility.convert_from_dict(cls, copy.deepcopy(d))
 
     def to_dict(self) -> Dict[str, Any]:
         return dataclass_utility.convert_to_dict(self)

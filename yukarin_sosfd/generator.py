@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, List, Optional, Union
+from typing import Any, List, Union
 
 import numpy
 import torch
@@ -11,7 +11,8 @@ from yukarin_sosfd.network.predictor import Predictor, create_predictor
 
 
 class GeneratorOutput(TypedDict):
-    wave: Tensor
+    lf0: Tensor
+    vuv: Tensor
 
 
 def to_tensor(array: Union[Tensor, numpy.ndarray, Any]):
@@ -43,48 +44,124 @@ class Generator(nn.Module):
 
     def forward(
         self,
-        noise_wave_list: List[Union[numpy.ndarray, Tensor]],
-        lf0_list: List[Union[numpy.ndarray, Tensor]],
+        noise_lf0_list: List[Union[numpy.ndarray, Tensor]],
+        noise_vuv_list: List[Union[numpy.ndarray, Tensor]],
+        accent_list: List[Union[numpy.ndarray, Tensor]],
+        phoneme_list: List[Union[numpy.ndarray, Tensor]],
+        speaker_id: Union[numpy.ndarray, Tensor],
         step_num: int,
         return_every_step: bool = False,
     ):
-        noise_wave_list = [
-            to_tensor(noise_weve).to(self.device) for noise_weve in noise_wave_list
+        noise_lf0_list = [
+            to_tensor(noise_lf0).to(self.device) for noise_lf0 in noise_lf0_list
         ]
-        lf0_list = [to_tensor(lf0).to(self.device) for lf0 in lf0_list]
+        noise_vuv_list = [
+            to_tensor(noise_vuv).to(self.device) for noise_vuv in noise_vuv_list
+        ]
+        accent_list = [to_tensor(accent).to(self.device) for accent in accent_list]
+        phoneme_list = [to_tensor(phoneme).to(self.device) for phoneme in phoneme_list]
+        speaker_id = to_tensor(speaker_id).to(self.device)
 
         t = torch.linspace(0, 1, steps=step_num, device=self.device)
 
-        wave_list_step = []
+        lf0_list_step = []
+        vuv_list_step = []
 
         with torch.inference_mode():
-            wave_list = [t.clone() for t in noise_wave_list]
+            lf0_list = [t.clone() for t in noise_lf0_list]
+            vuv_list = [t.clone() for t in noise_vuv_list]
+            vuv_hat_list = []
 
-            # if return_every_step:
-            #     wave_list_step.append([t.clone() for t in wave_list])
+            if return_every_step:
+                lf0_list_step.append([t.clone() for t in lf0_list])
+                vuv_list_step.append([t.clone() for t in vuv_list])
 
             for i in range(step_num):
-                output_list = self.predictor.inference(
-                    wave_list=wave_list,
-                    lf0_list=lf0_list,
+                if i == 0:
+                    correct_lf0_list = lf0_list
+                else:
+                    correct_lf0_list = [
+                        torch.lerp(lf0, torch.randn_like(lf0), (vuv_hat < 0.5).float())
+                        for lf0, vuv_hat in zip(lf0_list, vuv_hat_list)
+                    ]
+
+                output_lf0_list, output_vuv_list = self.predictor(
+                    lf0_list=correct_lf0_list,
+                    vuv_list=vuv_list,
+                    accent_list=accent_list,
+                    phoneme_list=phoneme_list,
+                    speaker_id=speaker_id,
                     t=t[i].expand(len(lf0_list)),
                 )
 
                 if return_every_step:
-                    wave_list_step.append(
+                    lf0_list_step.append(
                         [
-                            (wave + output.unsqueeze(1) * (step_num - i) / step_num)
-                            for wave, output in zip(wave_list, output_list)
+                            (lf0 + output.unsqueeze(1) * (step_num - i) / step_num)
+                            for lf0, output in zip(lf0_list, output_lf0_list)
+                        ]
+                    )
+                    vuv_list_step.append(
+                        [
+                            (vuv + output.unsqueeze(1) * (step_num - i) / step_num)
+                            for vuv, output in zip(vuv_list, output_vuv_list)
                         ]
                     )
 
-                for wave, output in zip(wave_list, output_list):
-                    wave += output.unsqueeze(1) / step_num
+                for lf0, vuv, output_lf0, output_vuv in zip(
+                    lf0_list, vuv_list, output_lf0_list, output_vuv_list
+                ):
+                    lf0 += output_lf0.unsqueeze(1) / step_num
+                    vuv += output_vuv.unsqueeze(1) / step_num
+                    vuv_hat_list = self._denorm_vuv(
+                        (vuv + output_vuv.unsqueeze(1) * (step_num - i) / step_num),
+                        speaker_id,
+                    )
 
         if not return_every_step:
-            return [GeneratorOutput(wave=wave.squeeze(1)) for wave in wave_list]
+            return [
+                GeneratorOutput(lf0=lf0.squeeze(1), vuv=vuv.squeeze(1))
+                for lf0, vuv in zip(lf0_list, vuv_list)
+            ]
         else:
             return [
-                [GeneratorOutput(wave=wave.squeeze(1)) for wave in wave_list]
-                for wave_list in wave_list_step
+                [
+                    GeneratorOutput(lf0=lf0.squeeze(1), vuv=vuv.squeeze(1))
+                    for lf0, vuv in zip(lf0_list, vuv_list)
+                ]
+                for lf0_list, vuv_list in zip(lf0_list_step, vuv_list_step)
             ]
+
+    def denorm(
+        self,
+        output_list: List[GeneratorOutput],
+        speaker_id: Union[numpy.ndarray, Tensor],
+    ):
+        return [
+            GeneratorOutput(
+                lf0=(
+                    output["lf0"] * self.predictor.lf0_std[speaker_id]
+                    + self.predictor.lf0_mean[speaker_id]
+                ).float(),
+                vuv=(
+                    output["vuv"] * self.predictor.vuv_std[speaker_id]
+                    + self.predictor.vuv_mean[speaker_id]
+                ),
+            )
+            for output, speaker_id in zip(
+                output_list, to_tensor(speaker_id).to(self.device).split(1)
+            )
+        ]
+
+    def _denorm_vuv(
+        self,
+        vuv_list: List[Tensor],
+        speaker_id_list: List[Tensor],
+    ):
+        return [
+            (
+                vuv * self.predictor.vuv_std[speaker_id]
+                + self.predictor.vuv_mean[speaker_id]
+            )
+            for vuv, speaker_id in zip(vuv_list, speaker_id_list)
+        ]

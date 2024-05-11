@@ -32,8 +32,31 @@ def train(config_yaml_path: Path, output_dir: Path):
     config = Config.from_dict(config_dict)
     config.add_git_info()
 
+    # dataset
+    def _create_loader(dataset, for_train: bool, for_eval: bool):
+        batch_size = (
+            config.train.eval_batch_size if for_eval else config.train.batch_size
+        )
+        return DataLoader(
+            dataset=dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=config.train.num_processes,
+            collate_fn=collate_list,
+            pin_memory=config.train.use_gpu,
+            drop_last=for_train,
+            timeout=0 if config.train.num_processes == 0 else 30,
+            persistent_workers=config.train.num_processes > 0,
+        )
+
+    datasets, statistics = create_dataset(config.dataset)
+    train_loader = _create_loader(datasets["train"], for_train=True, for_eval=False)
+    test_loader = _create_loader(datasets["test"], for_train=False, for_eval=False)
+    eval_loader = _create_loader(datasets["test"], for_train=False, for_eval=True)
+    valid_loader = _create_loader(datasets["valid"], for_train=False, for_eval=True)
+
     # model
-    predictor = create_predictor(config.network)
+    predictor = create_predictor(config.network, statistics=statistics)
     model = Model(model_config=config.model, predictor=predictor)
     if config.train.weight_initializer is not None:
         init_weights(model, name=config.train.weight_initializer)
@@ -52,31 +75,6 @@ def train(config_yaml_path: Path, output_dir: Path):
         config=config, predictor=predictor, use_gpu=config.train.use_gpu
     )
     evaluator = Evaluator(generator=generator, step_num=config.train.diffusion_step_num)
-
-    # dataset
-    datasets = create_dataset(config.dataset)
-
-    def _create_loader(dataset, for_train: bool, for_eval: bool):
-        batch_size = (
-            config.train.eval_batch_size if for_eval else config.train.batch_size
-        )
-        return DataLoader(
-            dataset=dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=config.train.num_processes,
-            collate_fn=collate_list,
-            pin_memory=config.train.use_gpu,
-            drop_last=for_train,
-            timeout=0 if config.train.num_processes == 0 else 30,
-            persistent_workers=config.train.num_processes > 0,
-        )
-
-    datasets = create_dataset(config.dataset)
-    train_loader = _create_loader(datasets["train"], for_train=True, for_eval=False)
-    test_loader = _create_loader(datasets["test"], for_train=False, for_eval=False)
-    eval_loader = _create_loader(datasets["test"], for_train=False, for_eval=True)
-    valid_loader = _create_loader(datasets["valid"], for_train=False, for_eval=True)
 
     # optimizer
     optimizer = make_optimizer(config_dict=config.train.optimizer, model=model)

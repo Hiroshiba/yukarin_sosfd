@@ -1,4 +1,6 @@
 numpy
+scipy
+librosa
 tqdm
 torch
 torch_optimizer

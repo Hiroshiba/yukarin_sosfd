@@ -12,6 +12,8 @@ from yukarin_sosfd.network.predictor import Predictor
 
 class ModelOutput(TypedDict):
     loss: Tensor
+    loss_f0: Tensor
+    loss_vuv: Tensor
     data_num: int
 
 
@@ -34,21 +36,35 @@ class Model(nn.Module):
         self.predictor = predictor
 
     def forward(self, data: DatasetOutput) -> ModelOutput:
-        output_list: List[Tensor] = self.predictor(
-            wave_list=data["input_wave"],
-            lf0_list=data["lf0"],
+        output_lf0_list, output_vuv_list = self.predictor(
+            lf0_list=data["input_lf0"],
+            vuv_list=data["input_vuv"],
+            accent_list=data["accent"],
+            phoneme_list=data["phoneme"],
+            speaker_id=torch.stack(data["speaker_id"]),
             t=torch.stack(data["t"]),
         )
 
-        output = torch.cat(output_list)
+        output_lf0 = torch.cat(output_lf0_list)
+        output_vuv = torch.cat(output_vuv_list)
 
-        target_wave = torch.cat(data["target_wave"]).squeeze(1)
-        noise_wave = torch.cat(data["noise_wave"]).squeeze(1)
-        diff_wave = target_wave - noise_wave
+        voiced = torch.cat(data["voiced"]).squeeze(1)
 
-        loss = F.mse_loss(output, diff_wave)
+        target_lf0 = torch.cat(data["target_lf0"]).squeeze(1)
+        noise_lf0 = torch.cat(data["noise_lf0"]).squeeze(1)
+        diff_lf0 = target_lf0[voiced] - noise_lf0[voiced]
+        loss_lf0 = F.mse_loss(output_lf0[voiced], diff_lf0)
+
+        target_vuv = torch.cat(data["target_vuv"]).squeeze(1)
+        noise_vuv = torch.cat(data["noise_vuv"]).squeeze(1)
+        diff_vuv = target_vuv - noise_vuv
+        loss_vuv = F.mse_loss(output_vuv, diff_vuv)
+
+        loss = loss_lf0 + loss_vuv
 
         return ModelOutput(
             loss=loss,
+            loss_f0=loss_lf0,
+            loss_vuv=loss_vuv,
             data_num=len(data),
         )
