@@ -51,6 +51,7 @@ class Predictor(nn.Module):
             positional_dropout_rate=0.2,
             attention_dropout_rate=0.2,
             normalize_before=True,
+            concat_after=True,
             positionwise_layer_type="conv1d",
             positionwise_conv_kernel_size=3,
             macaron_style=True,
