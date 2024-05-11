@@ -108,15 +108,19 @@ class Generator(nn.Module):
                         ]
                     )
 
+                vuv_hat_list = self._denorm_vuv(
+                    vuv_list=[
+                        (vuv + output.unsqueeze(1) * (step_num - i) / step_num)
+                        for vuv, output in zip(vuv_list, output_vuv_list)
+                    ],
+                    speaker_id_list=speaker_id.split(1),
+                )
+
                 for lf0, vuv, output_lf0, output_vuv in zip(
                     lf0_list, vuv_list, output_lf0_list, output_vuv_list
                 ):
                     lf0 += output_lf0.unsqueeze(1) / step_num
                     vuv += output_vuv.unsqueeze(1) / step_num
-                    vuv_hat_list = self._denorm_vuv(
-                        (vuv + output_vuv.unsqueeze(1) * (step_num - i) / step_num),
-                        speaker_id,
-                    )
 
         if not return_every_step:
             return [
