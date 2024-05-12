@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import torch
 from espnet_pytorch_library.conformer.encoder import Encoder
@@ -21,6 +21,7 @@ class Predictor(nn.Module):
         hidden_size: int,
         block_num: int,
         post_layer_num: int,
+        concat_after: bool,
         statistics: Optional[DatasetStatistics] = None,  # 話者ごとの統計情報
     ):
         super().__init__()
@@ -51,7 +52,7 @@ class Predictor(nn.Module):
             positional_dropout_rate=0.2,
             attention_dropout_rate=0.2,
             normalize_before=True,
-            concat_after=True,
+            concat_after=concat_after,
             positionwise_layer_type="conv1d",
             positionwise_conv_kernel_size=3,
             macaron_style=True,
@@ -158,5 +159,6 @@ def create_predictor(
         hidden_size=config.hidden_size,
         block_num=config.block_num,
         post_layer_num=config.post_layer_num,
+        concat_after=config.concat_after,
         statistics=statistics,
     )

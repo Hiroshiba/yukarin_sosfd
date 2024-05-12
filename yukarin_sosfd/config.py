@@ -39,6 +39,7 @@ class NetworkConfig:
     hidden_size: int
     block_num: int
     post_layer_num: int
+    concat_after: bool
 
 
 @dataclass
@@ -94,4 +95,5 @@ class Config:
 
 
 def backward_compatible(d: Dict[str, Any]):
-    pass
+    if "concat_after" not in d["network"]:
+        d["network"]["concat_after"] = True
