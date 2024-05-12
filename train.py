@@ -1,11 +1,13 @@
 import argparse
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import torch
 import yaml
 from torch.cuda.amp.autocast_mode import autocast
 from torch.cuda.amp.grad_scaler import GradScaler
+from torch.optim.lr_scheduler import LRScheduler
+from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 
 from yukarin_sosfd.config import Config
@@ -33,6 +35,27 @@ def train(config_yaml_path: Path, output_dir: Path):
     config.add_git_info()
 
     # dataset
+    datasets, statistics = create_dataset(config.dataset)
+
+    torch._dynamo.config.verbose = True
+    _train(
+        output_dir,
+        config_dict,
+        config,
+        datasets,
+        statistics,
+    )
+
+
+@torch.compile()
+def _train(
+    output_dir,
+    config_dict,
+    config: Config,
+    datasets: dict[str, list],
+    statistics: dict[str, dict],
+):
+    # dataset
     def _create_loader(dataset, for_train: bool, for_eval: bool):
         batch_size = (
             config.train.eval_batch_size if for_eval else config.train.batch_size
@@ -49,7 +72,6 @@ def train(config_yaml_path: Path, output_dir: Path):
             persistent_workers=config.train.num_processes > 0,
         )
 
-    datasets, statistics = create_dataset(config.dataset)
     train_loader = _create_loader(datasets["train"], for_train=True, for_eval=False)
     test_loader = _create_loader(datasets["test"], for_train=False, for_eval=False)
     eval_loader = _create_loader(datasets["test"], for_train=False, for_eval=True)
