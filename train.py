@@ -133,7 +133,7 @@ def train(config_yaml_path: Path, output_dir: Path):
 
     for _ in range(config.train.stop_epoch):
         epoch += 1
-        if epoch == config.train.stop_epoch:
+        if epoch > config.train.stop_epoch:
             break
 
         train_results: List[ModelOutput] = []
