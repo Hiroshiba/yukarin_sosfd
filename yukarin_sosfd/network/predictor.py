@@ -22,6 +22,9 @@ class Predictor(nn.Module):
         block_num: int,
         post_layer_num: int,
         concat_after: bool,
+        dropout_rate: bool,
+        positional_dropout_rate: bool,
+        attention_dropout_rate: bool,
         statistics: Optional[DatasetStatistics] = None,  # 話者ごとの統計情報
     ):
         super().__init__()
@@ -48,9 +51,9 @@ class Predictor(nn.Module):
             linear_units=hidden_size * 4,
             num_blocks=block_num,
             input_layer=None,
-            dropout_rate=0.2,
-            positional_dropout_rate=0.2,
-            attention_dropout_rate=0.2,
+            dropout_rate=dropout_rate,
+            positional_dropout_rate=positional_dropout_rate,
+            attention_dropout_rate=attention_dropout_rate,
             normalize_before=True,
             concat_after=concat_after,
             positionwise_layer_type="conv1d",
@@ -160,5 +163,8 @@ def create_predictor(
         block_num=config.block_num,
         post_layer_num=config.post_layer_num,
         concat_after=config.concat_after,
+        dropout_rate=config.dropout_rate,
+        positional_dropout_rate=config.positional_dropout_rate,
+        attention_dropout_rate=config.attention_dropout_rate,
         statistics=statistics,
     )
