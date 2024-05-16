@@ -1,13 +1,13 @@
 from typing import List, Optional
 
 import torch
-from espnet_pytorch_library.nets_utils import make_non_pad_mask
-from espnet_pytorch_library.tacotron2.decoder import Postnet
 from torch import Tensor, nn
 from torch.nn.utils.rnn import pad_sequence
 
 from yukarin_sosfd.config import NetworkConfig
 from yukarin_sosfd.dataset import DatasetStatistics
+from yukarin_sosfd.network.conformer.encoder import Encoder
+from yukarin_sosfd.network.transformer.utility import make_non_pad_mask
 
 
 class Predictor(nn.Module):
@@ -19,12 +19,9 @@ class Predictor(nn.Module):
         phoneme_embedding_size: int,
         hidden_size: int,
         block_num: int,
-        post_layer_num: int,
-        concat_after: bool,
         dropout_rate: bool,
         positional_dropout_rate: bool,
         attention_dropout_rate: bool,
-        experimental_use_myconformer: bool,
         statistics: Optional[DatasetStatistics] = None,  # 話者ごとの統計情報
     ):
         super().__init__()
@@ -44,62 +41,21 @@ class Predictor(nn.Module):
         )  # lf0 + vuv + accent + phoneme + speaker + t
         self.pre = torch.nn.Linear(input_size, hidden_size)
 
-        if not experimental_use_myconformer:
-            from espnet_pytorch_library.conformer.encoder import Encoder
-
-            self.encoder = Encoder(
-                idim=None,
-                attention_dim=hidden_size,
-                attention_heads=2,
-                linear_units=hidden_size * 4,
-                num_blocks=block_num,
-                input_layer=None,
-                dropout_rate=dropout_rate,
-                positional_dropout_rate=positional_dropout_rate,
-                attention_dropout_rate=attention_dropout_rate,
-                normalize_before=True,
-                concat_after=concat_after,
-                positionwise_layer_type="conv1d",
-                positionwise_conv_kernel_size=3,
-                # macaron_style=True,
-                macaron_style=False,
-                pos_enc_layer_type="rel_pos",
-                selfattention_layer_type="rel_selfattn",
-                activation_type="swish",
-                use_cnn_module=True,
-                cnn_module_kernel=31,
-            )
-        else:
-            from yukarin_sosfd.network.conformer.encoder import Encoder
-
-            self.encoder = Encoder(
-                hidden_size=hidden_size,
-                num_blocks=block_num,
-                dropout_rate=dropout_rate,
-                positional_dropout_rate=positional_dropout_rate,
-                attention_head_size=2,
-                attention_dropout_rate=attention_dropout_rate,
-                use_conv_glu_module=True,
-                conv_glu_module_kernel_size=31,
-                feed_forward_hidden_size=hidden_size * 4,
-                feed_forward_kernel_size=3,
-            )
+        self.encoder = Encoder(
+            hidden_size=hidden_size,
+            block_num=block_num,
+            dropout_rate=dropout_rate,
+            positional_dropout_rate=positional_dropout_rate,
+            attention_head_size=2,
+            attention_dropout_rate=attention_dropout_rate,
+            use_conv_glu_module=True,
+            conv_glu_module_kernel_size=31,
+            feed_forward_hidden_size=hidden_size * 4,
+            feed_forward_kernel_size=3,
+        )
 
         output_size = 1 + 1  # lf0 + vuv
         self.post = torch.nn.Linear(hidden_size, output_size)
-
-        if post_layer_num > 0:
-            self.postnet = Postnet(
-                idim=output_size,
-                odim=output_size,
-                n_layers=post_layer_num,
-                n_chans=hidden_size,
-                n_filts=5,
-                use_batch_norm=True,
-                dropout_rate=0.5,
-            )
-        else:
-            self.postnet = None
 
         self.lf0_mean: Tensor
         self.lf0_std: Tensor
@@ -116,10 +72,6 @@ class Predictor(nn.Module):
             self.register_buffer("vuv_mean", torch.full((speaker_size,), torch.nan))
             self.register_buffer("vuv_std", torch.full((speaker_size,), torch.nan))
 
-    def _mask(self, length: Tensor):
-        x_masks = make_non_pad_mask(length).to(length.device)
-        return x_masks.unsqueeze(-2)
-
     def forward(
         self,
         lf0_list: List[Tensor],  # [(L, 1)]
@@ -135,7 +87,6 @@ class Predictor(nn.Module):
         """
         length_list = [t.shape[0] for t in lf0_list]
 
-        length = torch.tensor(length_list, device=lf0_list[0].device)
         lf0 = pad_sequence(lf0_list, batch_first=True)  # (B, L, ?)
         vuv = pad_sequence(vuv_list, batch_first=True)  # (B, L, ?)
         accent = pad_sequence(accent_list, batch_first=True)  # (B, L, ?)
@@ -155,18 +106,13 @@ class Predictor(nn.Module):
         h = torch.cat((lf0, vuv, accent, phoneme, speaker_id, t), dim=2)  # (B, L, ?)
         h = self.pre(h)
 
-        mask = self._mask(length)
-        h, _ = self.encoder(h, mask)
+        mask = make_non_pad_mask(length_list).unsqueeze(-2).to(h.device)
+        h, _ = self.encoder(h, mask)  # (B, L, ?)
 
-        output1 = self.post(h)
-        if self.postnet is not None:
-            output2 = output1 + self.postnet(output1.transpose(1, 2)).transpose(1, 2)
-        else:
-            output2 = output1
-
+        output = self.post(h)  # (B, L, ?)
         return (
-            [output2[i, :l, 0] for i, l in enumerate(length_list)],  # lf0
-            [output2[i, :l, 1] for i, l in enumerate(length_list)],  # vuv
+            [output[i, :l, 0] for i, l in enumerate(length_list)],  # lf0
+            [output[i, :l, 1] for i, l in enumerate(length_list)],  # vuv
         )
 
 
@@ -180,11 +126,8 @@ def create_predictor(
         phoneme_embedding_size=config.phoneme_embedding_size,
         hidden_size=config.hidden_size,
         block_num=config.block_num,
-        post_layer_num=config.post_layer_num,
-        concat_after=config.concat_after,
         dropout_rate=config.dropout_rate,
         positional_dropout_rate=config.positional_dropout_rate,
         attention_dropout_rate=config.attention_dropout_rate,
-        experimental_use_myconformer=config.experimental_use_myconformer,
         statistics=statistics,
     )

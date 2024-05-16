@@ -55,18 +55,19 @@ def train(config_yaml_path: Path, output_dir: Path):
     eval_loader = _create_loader(datasets["test"], for_train=False, for_eval=True)
     valid_loader = _create_loader(datasets["valid"], for_train=False, for_eval=True)
 
-    # model
+    # predictor
     predictor = create_predictor(config.network, statistics=statistics)
-    model = Model(model_config=config.model, predictor=predictor)
-    if config.train.weight_initializer is not None:
-        init_weights(model, name=config.train.weight_initializer)
-
     device = "cuda" if config.train.use_gpu else "cpu"
     if config.train.pretrained_predictor_path is not None:
         state_dict = torch.load(
             config.train.pretrained_predictor_path, map_location=device
         )
         predictor.load_state_dict(state_dict)
+
+    # model
+    model = Model(model_config=config.model, predictor=predictor)
+    if config.train.weight_initializer is not None:
+        init_weights(model, name=config.train.weight_initializer)
     model.to(device)
     model.train()
 
@@ -135,6 +136,8 @@ def train(config_yaml_path: Path, output_dir: Path):
         epoch += 1
         if epoch > config.train.stop_epoch:
             break
+
+        model.train()
 
         train_results: List[ModelOutput] = []
         for batch in train_loader:
@@ -206,8 +209,6 @@ def train(config_yaml_path: Path, output_dir: Path):
                         )
 
                 logger.log(summary=summary, step=epoch)
-
-            model.train()
 
 
 if __name__ == "__main__":

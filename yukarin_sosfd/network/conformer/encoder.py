@@ -20,7 +20,7 @@ class Encoder(nn.Module):
     def __init__(
         self,
         hidden_size: int,
-        num_blocks: int,
+        block_num: int,
         dropout_rate: float,
         positional_dropout_rate: float,
         attention_head_size: int,
@@ -60,7 +60,7 @@ class Encoder(nn.Module):
                     ),
                     dropout_rate=dropout_rate,
                 )
-                for _ in range(num_blocks)
+                for _ in range(block_num)
             ]
         )
         self.after_norm = nn.LayerNorm(hidden_size, eps=1e-12)
