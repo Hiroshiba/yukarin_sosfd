@@ -39,11 +39,9 @@ class NetworkConfig:
     hidden_size: int
     block_num: int
     post_layer_num: int
-    concat_after: bool
     dropout_rate: float
     positional_dropout_rate: float
     attention_dropout_rate: float
-    experimental_use_myconformer: bool
 
 
 @dataclass
@@ -99,9 +97,6 @@ class Config:
 
 
 def backward_compatible(d: Dict[str, Any]):
-    if "concat_after" not in d["network"]:
-        d["network"]["concat_after"] = True
-
     if "dropout_rate" not in d["network"]:
         d["network"]["dropout_rate"] = 0.2
     if "positional_dropout_rate" not in d["network"]:
@@ -109,5 +104,11 @@ def backward_compatible(d: Dict[str, Any]):
     if "attention_dropout_rate" not in d["network"]:
         d["network"]["attention_dropout_rate"] = 0.2
 
-    if "experimental_use_myconformer" not in d["network"]:
-        d["network"]["experimental_use_myconformer"] = False
+    if "experimental_use_myconformer" in d["network"]:
+        assert (
+            d["network"]["experimental_use_myconformer"] is True
+        ), "experimental_use_myconformer must be True."
+        del d["network"]["experimental_use_myconformer"]
+    if "concat_after" in d["network"]:
+        assert d["network"]["concat_after"] is False, "concat_after must be False."
+        del d["network"]["concat_after"]
