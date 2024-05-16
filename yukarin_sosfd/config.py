@@ -43,6 +43,7 @@ class NetworkConfig:
     dropout_rate: float
     positional_dropout_rate: float
     attention_dropout_rate: float
+    experimental_use_myconformer: bool
 
 
 @dataclass
@@ -107,3 +108,6 @@ def backward_compatible(d: Dict[str, Any]):
         d["network"]["positional_dropout_rate"] = 0.2
     if "attention_dropout_rate" not in d["network"]:
         d["network"]["attention_dropout_rate"] = 0.2
+
+    if "experimental_use_myconformer" not in d["network"]:
+        d["network"]["experimental_use_myconformer"] = False

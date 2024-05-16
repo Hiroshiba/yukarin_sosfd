@@ -4,11 +4,11 @@
 import torch
 from torch import Tensor, nn
 
-from .convolution import ConvGLUModule
-from .encoder_layer import EncoderLayer
 from ..transformer.attention import RelPositionMultiHeadedAttention
 from ..transformer.embedding import RelPositionalEncoding
 from ..transformer.multi_layer_conv import FastSpeechTwoConv
+from .convolution import ConvGLUModule
+from .encoder_layer import EncoderLayer
 
 
 class Swish(nn.Module):
@@ -47,7 +47,7 @@ class Encoder(nn.Module):
                         ConvGLUModule(
                             hidden_size=hidden_size,
                             kernel_size=conv_glu_module_kernel_size,
-                            activation=Swish,
+                            activation=Swish(),
                         )
                         if use_conv_glu_module
                         else None

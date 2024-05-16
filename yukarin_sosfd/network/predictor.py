@@ -1,7 +1,6 @@
 from typing import List, Optional
 
 import torch
-from espnet_pytorch_library.conformer.encoder import Encoder
 from espnet_pytorch_library.nets_utils import make_non_pad_mask
 from espnet_pytorch_library.tacotron2.decoder import Postnet
 from torch import Tensor, nn
@@ -25,6 +24,7 @@ class Predictor(nn.Module):
         dropout_rate: bool,
         positional_dropout_rate: bool,
         attention_dropout_rate: bool,
+        experimental_use_myconformer: bool,
         statistics: Optional[DatasetStatistics] = None,  # 話者ごとの統計情報
     ):
         super().__init__()
@@ -44,27 +44,46 @@ class Predictor(nn.Module):
         )  # lf0 + vuv + accent + phoneme + speaker + t
         self.pre = torch.nn.Linear(input_size, hidden_size)
 
-        self.encoder = Encoder(
-            idim=None,
-            attention_dim=hidden_size,
-            attention_heads=2,
-            linear_units=hidden_size * 4,
-            num_blocks=block_num,
-            input_layer=None,
-            dropout_rate=dropout_rate,
-            positional_dropout_rate=positional_dropout_rate,
-            attention_dropout_rate=attention_dropout_rate,
-            normalize_before=True,
-            concat_after=concat_after,
-            positionwise_layer_type="conv1d",
-            positionwise_conv_kernel_size=3,
-            macaron_style=True,
-            pos_enc_layer_type="rel_pos",
-            selfattention_layer_type="rel_selfattn",
-            activation_type="swish",
-            use_cnn_module=True,
-            cnn_module_kernel=31,
-        )
+        if not experimental_use_myconformer:
+            from espnet_pytorch_library.conformer.encoder import Encoder
+
+            self.encoder = Encoder(
+                idim=None,
+                attention_dim=hidden_size,
+                attention_heads=2,
+                linear_units=hidden_size * 4,
+                num_blocks=block_num,
+                input_layer=None,
+                dropout_rate=dropout_rate,
+                positional_dropout_rate=positional_dropout_rate,
+                attention_dropout_rate=attention_dropout_rate,
+                normalize_before=True,
+                concat_after=concat_after,
+                positionwise_layer_type="conv1d",
+                positionwise_conv_kernel_size=3,
+                # macaron_style=True,
+                macaron_style=False,
+                pos_enc_layer_type="rel_pos",
+                selfattention_layer_type="rel_selfattn",
+                activation_type="swish",
+                use_cnn_module=True,
+                cnn_module_kernel=31,
+            )
+        else:
+            from yukarin_sosfd.network.conformer.encoder import Encoder
+
+            self.encoder = Encoder(
+                hidden_size=hidden_size,
+                num_blocks=block_num,
+                dropout_rate=dropout_rate,
+                positional_dropout_rate=positional_dropout_rate,
+                attention_head_size=2,
+                attention_dropout_rate=attention_dropout_rate,
+                use_conv_glu_module=True,
+                conv_glu_module_kernel_size=31,
+                feed_forward_hidden_size=hidden_size * 4,
+                feed_forward_kernel_size=3,
+            )
 
         output_size = 1 + 1  # lf0 + vuv
         self.post = torch.nn.Linear(hidden_size, output_size)
@@ -166,5 +185,6 @@ def create_predictor(
         dropout_rate=config.dropout_rate,
         positional_dropout_rate=config.positional_dropout_rate,
         attention_dropout_rate=config.attention_dropout_rate,
+        experimental_use_myconformer=config.experimental_use_myconformer,
         statistics=statistics,
     )
