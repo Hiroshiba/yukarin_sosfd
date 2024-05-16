@@ -41,6 +41,8 @@ class NetworkConfig:
     dropout_rate: float
     positional_dropout_rate: float
     attention_dropout_rate: float
+    use_conv_glu_module: bool
+    with_condition_t: bool
 
 
 @dataclass
@@ -114,3 +116,8 @@ def backward_compatible(d: Dict[str, Any]):
     if "post_layer_num" in d["network"]:
         assert d["network"]["post_layer_num"] == 0, "post_layer_num must be 0."
         del d["network"]["post_layer_num"]
+
+    if "use_conv_glu_module" not in d["network"]:
+        d["network"]["use_conv_glu_module"] = True
+    if "with_condition_t" not in d["network"]:
+        d["network"]["with_condition_t"] = False

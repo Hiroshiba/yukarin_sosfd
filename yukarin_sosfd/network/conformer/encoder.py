@@ -1,6 +1,8 @@
 # Original Code Copyright ESPnet
 # Apache 2.0 (http://www.apache.org/licenses/LICENSE-2.0)
 
+from typing import Optional
+
 import torch
 from torch import Tensor, nn
 
@@ -20,6 +22,7 @@ class Encoder(nn.Module):
     def __init__(
         self,
         hidden_size: int,
+        condition_size: int,
         block_num: int,
         dropout_rate: float,
         positional_dropout_rate: float,
@@ -34,42 +37,46 @@ class Encoder(nn.Module):
 
         self.embed = RelPositionalEncoding(hidden_size, positional_dropout_rate)
 
-        self.encoders = nn.Sequential(
-            *[
-                EncoderLayer(
+        self.condition_linear = (
+            nn.Linear(condition_size, hidden_size) if condition_size > 0 else None
+        )
+        self.encoders = nn.ModuleList(
+            EncoderLayer(
+                hidden_size=hidden_size,
+                self_attn=RelPositionMultiHeadedAttention(
+                    head_size=attention_head_size,
                     hidden_size=hidden_size,
-                    self_attn=RelPositionMultiHeadedAttention(
-                        head_size=attention_head_size,
+                    dropout_rate=attention_dropout_rate,
+                ),
+                conv_module=(
+                    ConvGLUModule(
                         hidden_size=hidden_size,
-                        dropout_rate=attention_dropout_rate,
-                    ),
-                    conv_module=(
-                        ConvGLUModule(
-                            hidden_size=hidden_size,
-                            kernel_size=conv_glu_module_kernel_size,
-                            activation=Swish(),
-                        )
-                        if use_conv_glu_module
-                        else None
-                    ),
-                    feed_forward=FastSpeechTwoConv(
-                        inout_size=hidden_size,
-                        hidden_size=feed_forward_hidden_size,
-                        kernel_size=feed_forward_kernel_size,
-                        dropout_rate=dropout_rate,
-                    ),
+                        kernel_size=conv_glu_module_kernel_size,
+                        activation=Swish(),
+                    )
+                    if use_conv_glu_module
+                    else None
+                ),
+                feed_forward=FastSpeechTwoConv(
+                    inout_size=hidden_size,
+                    hidden_size=feed_forward_hidden_size,
+                    kernel_size=feed_forward_kernel_size,
                     dropout_rate=dropout_rate,
-                )
-                for _ in range(block_num)
-            ]
+                ),
+                dropout_rate=dropout_rate,
+            )
+            for _ in range(block_num)
         )
         self.after_norm = nn.LayerNorm(hidden_size, eps=1e-12)
 
     def forward(
         self,
         x: Tensor,  # (B, T, ?)
+        cond: Optional[Tensor],  # (B, T, ?)
         mask: Tensor,  # (B, 1, T)
     ):
+        if self.condition_linear is not None:
+            x = x + self.condition_linear(cond)
         x, pos_emb = self.embed(x)
         for encoder in self.encoders:
             x, pos_emb, mask = encoder(x=x, pos_emb=pos_emb, mask=mask)

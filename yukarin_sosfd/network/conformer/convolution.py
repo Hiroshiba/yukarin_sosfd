@@ -14,6 +14,7 @@ class ConvGLUModule(nn.Module):
         assert (kernel_size - 1) % 2 == 0
 
         self.linear1 = nn.Linear(hidden_size, 2 * hidden_size)
+        self.glu = nn.GLU(dim=2)
         self.depthwise_conv = nn.Conv1d(
             hidden_size,
             hidden_size,
@@ -23,14 +24,14 @@ class ConvGLUModule(nn.Module):
             groups=hidden_size,
         )
         self.norm = nn.BatchNorm1d(hidden_size)  # FIXME: 危ないかも
-        self.linear2 = nn.Linear(hidden_size, hidden_size)
         self.activation = activation
+        self.linear2 = nn.Linear(hidden_size, hidden_size)
 
     def forward(
         self,
         x: Tensor,  # (B, T, ?)
     ):
-        x = nn.functional.glu(self.linear1(x), dim=2)  # (B, T, ?)
+        x = self.glu(self.linear1(x))  # (B, T, ?)
         x = x.transpose(1, 2)  # (B, ?, T)
         x = self.activation(self.norm(self.depthwise_conv(x)))  # (B, ?, T)
         x = x.transpose(1, 2)  # (B, T, ?)

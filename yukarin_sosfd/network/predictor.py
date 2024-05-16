@@ -18,10 +18,7 @@ class Predictor(nn.Module):
         phoneme_size: int,
         phoneme_embedding_size: int,
         hidden_size: int,
-        block_num: int,
-        dropout_rate: bool,
-        positional_dropout_rate: bool,
-        attention_dropout_rate: bool,
+        encoder: Encoder,
         statistics: Optional[DatasetStatistics] = None,  # 話者ごとの統計情報
     ):
         super().__init__()
@@ -41,18 +38,7 @@ class Predictor(nn.Module):
         )  # lf0 + vuv + accent + phoneme + speaker + t
         self.pre = torch.nn.Linear(input_size, hidden_size)
 
-        self.encoder = Encoder(
-            hidden_size=hidden_size,
-            block_num=block_num,
-            dropout_rate=dropout_rate,
-            positional_dropout_rate=positional_dropout_rate,
-            attention_head_size=2,
-            attention_dropout_rate=attention_dropout_rate,
-            use_conv_glu_module=True,
-            conv_glu_module_kernel_size=31,
-            feed_forward_hidden_size=hidden_size * 4,
-            feed_forward_kernel_size=3,
-        )
+        self.encoder = encoder
 
         output_size = 1 + 1  # lf0 + vuv
         self.post = torch.nn.Linear(hidden_size, output_size)
@@ -107,7 +93,7 @@ class Predictor(nn.Module):
         h = self.pre(h)
 
         mask = make_non_pad_mask(length_list).unsqueeze(-2).to(h.device)
-        h, _ = self.encoder(h, mask)  # (B, L, ?)
+        h, _ = self.encoder(x=h, cond=t, mask=mask)  # (B, L, ?)
 
         output = self.post(h)  # (B, L, ?)
         return (
@@ -119,15 +105,25 @@ class Predictor(nn.Module):
 def create_predictor(
     config: NetworkConfig, statistics: Optional[DatasetStatistics] = None
 ):
+    encoder = Encoder(
+        hidden_size=config.hidden_size,
+        condition_size=1 if config.with_condition_t else 0,
+        block_num=config.block_num,
+        dropout_rate=config.dropout_rate,
+        positional_dropout_rate=config.positional_dropout_rate,
+        attention_head_size=2,
+        attention_dropout_rate=config.attention_dropout_rate,
+        use_conv_glu_module=config.use_conv_glu_module,
+        conv_glu_module_kernel_size=31,
+        feed_forward_hidden_size=config.hidden_size * 4,
+        feed_forward_kernel_size=3,
+    )
     return Predictor(
         speaker_size=config.speaker_size,
         speaker_embedding_size=config.speaker_embedding_size,
         phoneme_size=config.phoneme_size,
         phoneme_embedding_size=config.phoneme_embedding_size,
         hidden_size=config.hidden_size,
-        block_num=config.block_num,
-        dropout_rate=config.dropout_rate,
-        positional_dropout_rate=config.positional_dropout_rate,
-        attention_dropout_rate=config.attention_dropout_rate,
+        encoder=encoder,
         statistics=statistics,
     )

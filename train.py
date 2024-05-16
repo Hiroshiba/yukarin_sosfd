@@ -63,6 +63,7 @@ def train(config_yaml_path: Path, output_dir: Path):
             config.train.pretrained_predictor_path, map_location=device
         )
         predictor.load_state_dict(state_dict)
+    print("predictor:", predictor)
 
     # model
     model = Model(model_config=config.model, predictor=predictor)
