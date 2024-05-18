@@ -5,7 +5,7 @@ from torch import Tensor, nn
 from torch.nn.utils.rnn import pad_sequence
 
 from yukarin_sosfd.config import NetworkConfig
-from yukarin_sosfd.dataset import DatasetStatistics
+from yukarin_sosfd.data.statistic import DataStatistics
 from yukarin_sosfd.network.conformer.encoder import Encoder
 from yukarin_sosfd.network.transformer.utility import make_non_pad_mask
 
@@ -19,7 +19,7 @@ class Predictor(nn.Module):
         phoneme_embedding_size: int,
         hidden_size: int,
         encoder: Encoder,
-        statistics: Optional[DatasetStatistics] = None,  # 話者ごとの統計情報
+        statistics: Optional[DataStatistics] = None,  # 話者ごとの統計情報
     ):
         super().__init__()
 
@@ -34,34 +34,41 @@ class Predictor(nn.Module):
         )
 
         input_size = (
-            1 + 1 + 4 + phoneme_embedding_size + speaker_embedding_size + 1
-        )  # lf0 + vuv + accent + phoneme + speaker + t
+            1 + 1 + 1 + 4 + phoneme_embedding_size + speaker_embedding_size + 1
+        )  # lf0 + vuv + volume + accent + phoneme + speaker + t
         self.pre = torch.nn.Linear(input_size, hidden_size)
 
         self.encoder = encoder
 
-        output_size = 1 + 1  # lf0 + vuv
+        output_size = 1 + 1 + 1  # lf0 + vuv + volume
         self.post = torch.nn.Linear(hidden_size, output_size)
 
         self.lf0_mean: Tensor
         self.lf0_std: Tensor
         self.vuv_mean: Tensor
         self.vuv_std: Tensor
+        self.vol_mean: Tensor
+        self.vol_std: Tensor
         if statistics is not None:
             self.register_buffer("lf0_mean", torch.from_numpy(statistics.lf0_mean))
             self.register_buffer("lf0_std", torch.from_numpy(statistics.lf0_std))
             self.register_buffer("vuv_mean", torch.from_numpy(statistics.vuv_mean))
             self.register_buffer("vuv_std", torch.from_numpy(statistics.vuv_std))
+            self.register_buffer("vol_mean", torch.from_numpy(statistics.vol_mean))
+            self.register_buffer("vol_std", torch.from_numpy(statistics.vol_std))
         else:
             self.register_buffer("lf0_mean", torch.full((speaker_size,), torch.nan))
             self.register_buffer("lf0_std", torch.full((speaker_size,), torch.nan))
             self.register_buffer("vuv_mean", torch.full((speaker_size,), torch.nan))
             self.register_buffer("vuv_std", torch.full((speaker_size,), torch.nan))
+            self.register_buffer("vol_mean", torch.full((speaker_size,), torch.nan))
+            self.register_buffer("vol_std", torch.full((speaker_size,), torch.nan))
 
     def forward(
         self,
         lf0_list: List[Tensor],  # [(L, 1)]
         vuv_list: List[Tensor],  # [(L, 1)]
+        vol_list: List[Tensor],  # [(L, 1)]
         accent_list: List[Tensor],  # [(L, 4)]
         phoneme_list: List[Tensor],  # [(L, 1)]
         speaker_id: Tensor,  # (B, )
@@ -75,6 +82,7 @@ class Predictor(nn.Module):
 
         lf0 = pad_sequence(lf0_list, batch_first=True)  # (B, L, ?)
         vuv = pad_sequence(vuv_list, batch_first=True)  # (B, L, ?)
+        vol = pad_sequence(vol_list, batch_first=True)
         accent = pad_sequence(accent_list, batch_first=True)  # (B, L, ?)
 
         phoneme = pad_sequence(phoneme_list, batch_first=True).squeeze(2)  # (B, L)
@@ -89,7 +97,9 @@ class Predictor(nn.Module):
         t = t.unsqueeze(dim=1).unsqueeze(dim=2)  # (B, 1, ?)
         t = t.expand(t.shape[0], lf0.shape[1], t.shape[2])  # (B, L, ?)
 
-        h = torch.cat((lf0, vuv, accent, phoneme, speaker_id, t), dim=2)  # (B, L, ?)
+        h = torch.cat(
+            (lf0, vuv, vol, accent, phoneme, speaker_id, t), dim=2
+        )  # (B, L, ?)
         h = self.pre(h)
 
         mask = make_non_pad_mask(length_list).unsqueeze(-2).to(h.device)
@@ -99,11 +109,12 @@ class Predictor(nn.Module):
         return (
             [output[i, :l, 0] for i, l in enumerate(length_list)],  # lf0
             [output[i, :l, 1] for i, l in enumerate(length_list)],  # vuv
+            [output[i, :l, 2] for i, l in enumerate(length_list)],  # volume
         )
 
 
 def create_predictor(
-    config: NetworkConfig, statistics: Optional[DatasetStatistics] = None
+    config: NetworkConfig, statistics: Optional[DataStatistics] = None
 ):
     encoder = Encoder(
         hidden_size=config.hidden_size,

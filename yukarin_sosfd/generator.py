@@ -46,6 +46,7 @@ class Generator(nn.Module):
         self,
         noise_lf0_list: List[Union[numpy.ndarray, Tensor]],
         noise_vuv_list: List[Union[numpy.ndarray, Tensor]],
+        noise_vol_list: List[Union[numpy.ndarray, Tensor]],
         accent_list: List[Union[numpy.ndarray, Tensor]],
         phoneme_list: List[Union[numpy.ndarray, Tensor]],
         speaker_id: Union[numpy.ndarray, Tensor],
@@ -58,6 +59,9 @@ class Generator(nn.Module):
         noise_vuv_list = [
             to_tensor(noise_vuv).to(self.device) for noise_vuv in noise_vuv_list
         ]
+        noise_vol_list = [
+            to_tensor(noise_vol).to(self.device) for noise_vol in noise_vol_list
+        ]
         accent_list = [to_tensor(accent).to(self.device) for accent in accent_list]
         phoneme_list = [to_tensor(phoneme).to(self.device) for phoneme in phoneme_list]
         speaker_id = to_tensor(speaker_id).to(self.device)
@@ -66,15 +70,18 @@ class Generator(nn.Module):
 
         lf0_list_step = []
         vuv_list_step = []
+        vol_list_step = []
 
         with torch.inference_mode():
             lf0_list = [t.clone() for t in noise_lf0_list]
             vuv_list = [t.clone() for t in noise_vuv_list]
+            vol_list = [t.clone() for t in noise_vol_list]
             vuv_hat_list = []
 
             if return_every_step:
                 lf0_list_step.append([t.clone() for t in lf0_list])
                 vuv_list_step.append([t.clone() for t in vuv_list])
+                vol_list_step.append([t.clone() for t in vol_list])
 
             for i in range(step_num):
                 if i == 0:
@@ -85,9 +92,10 @@ class Generator(nn.Module):
                         for lf0, vuv_hat in zip(lf0_list, vuv_hat_list)
                     ]
 
-                output_lf0_list, output_vuv_list = self.predictor(
+                output_lf0_list, output_vuv_list, output_vol_list = self.predictor(
                     lf0_list=correct_lf0_list,
                     vuv_list=vuv_list,
+                    vol_list=vol_list,
                     accent_list=accent_list,
                     phoneme_list=phoneme_list,
                     speaker_id=speaker_id,
@@ -107,6 +115,12 @@ class Generator(nn.Module):
                             for vuv, output in zip(vuv_list, output_vuv_list)
                         ]
                     )
+                    vol_list_step.append(
+                        [
+                            (vol + output.unsqueeze(1) * (step_num - i) / step_num)
+                            for vol, output in zip(vol_list, output_vol_list)
+                        ]
+                    )
 
                 vuv_hat_list = self._denorm_vuv(
                     vuv_list=[
@@ -116,24 +130,36 @@ class Generator(nn.Module):
                     speaker_id_list=speaker_id.split(1),
                 )
 
-                for lf0, vuv, output_lf0, output_vuv in zip(
-                    lf0_list, vuv_list, output_lf0_list, output_vuv_list
+                for lf0, vuv, vol, output_lf0, output_vuv, output_vol in zip(
+                    lf0_list,
+                    vuv_list,
+                    vol_list,
+                    output_lf0_list,
+                    output_vuv_list,
+                    output_vol_list,
                 ):
                     lf0 += output_lf0.unsqueeze(1) / step_num
                     vuv += output_vuv.unsqueeze(1) / step_num
+                    vol += output_vol.unsqueeze(1) / step_num
 
         if not return_every_step:
             return [
-                GeneratorOutput(lf0=lf0.squeeze(1), vuv=vuv.squeeze(1))
-                for lf0, vuv in zip(lf0_list, vuv_list)
+                GeneratorOutput(
+                    lf0=lf0.squeeze(1), vuv=vuv.squeeze(1), vol=vol.squeeze(1)
+                )
+                for lf0, vuv, vol in zip(lf0_list, vuv_list, vol_list)
             ]
         else:
             return [
                 [
-                    GeneratorOutput(lf0=lf0.squeeze(1), vuv=vuv.squeeze(1))
-                    for lf0, vuv in zip(lf0_list, vuv_list)
+                    GeneratorOutput(
+                        lf0=lf0.squeeze(1), vuv=vuv.squeeze(1), vol=vol.squeeze(1)
+                    )
+                    for lf0, vuv, vol in zip(lf0_list, vuv_list, vol_list)
                 ]
-                for lf0_list, vuv_list in zip(lf0_list_step, vuv_list_step)
+                for lf0_list, vuv_list, vol_list in zip(
+                    lf0_list_step, vuv_list_step, vol_list_step
+                )
             ]
 
     def denorm(
@@ -150,7 +176,11 @@ class Generator(nn.Module):
                 vuv=(
                     output["vuv"] * self.predictor.vuv_std[speaker_id]
                     + self.predictor.vuv_mean[speaker_id]
-                ),
+                ).float(),
+                vol=(
+                    output["vol"] * self.predictor.vol_std[speaker_id]
+                    + self.predictor.vol_mean[speaker_id]
+                ).float(),
             )
             for output, speaker_id in zip(
                 output_list, to_tensor(speaker_id).to(self.device).split(1)

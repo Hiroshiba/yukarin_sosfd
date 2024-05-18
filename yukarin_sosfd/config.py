@@ -10,6 +10,7 @@ from yukarin_sosfd.utility.git_utility import get_branch_name, get_commit_id
 @dataclass
 class DatasetFileConfig:
     lf0_glob: str
+    wave_glob: str
     start_accent_list_glob: str
     end_accent_list_glob: str
     start_accent_phrase_list_glob: str
@@ -26,6 +27,7 @@ class DatasetConfig:
     frame_rate: float
     prepost_silence_length: int
     max_sampling_length: Optional[int]
+    train_num: Optional[int]
     test_num: int
     seed: int = 0
 
@@ -98,26 +100,4 @@ class Config:
 
 
 def backward_compatible(d: Dict[str, Any]):
-    if "dropout_rate" not in d["network"]:
-        d["network"]["dropout_rate"] = 0.2
-    if "positional_dropout_rate" not in d["network"]:
-        d["network"]["positional_dropout_rate"] = 0.2
-    if "attention_dropout_rate" not in d["network"]:
-        d["network"]["attention_dropout_rate"] = 0.2
-
-    if "experimental_use_myconformer" in d["network"]:
-        assert (
-            d["network"]["experimental_use_myconformer"] is True
-        ), "experimental_use_myconformer must be True."
-        del d["network"]["experimental_use_myconformer"]
-    if "concat_after" in d["network"]:
-        assert d["network"]["concat_after"] is False, "concat_after must be False."
-        del d["network"]["concat_after"]
-    if "post_layer_num" in d["network"]:
-        assert d["network"]["post_layer_num"] == 0, "post_layer_num must be 0."
-        del d["network"]["post_layer_num"]
-
-    if "use_conv_glu_module" not in d["network"]:
-        d["network"]["use_conv_glu_module"] = True
-    if "with_condition_t" not in d["network"]:
-        d["network"]["with_condition_t"] = False
+    pass
