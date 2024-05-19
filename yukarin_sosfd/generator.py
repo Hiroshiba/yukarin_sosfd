@@ -88,8 +88,10 @@ class Generator(nn.Module):
                     correct_lf0_list = lf0_list
                 else:
                     correct_lf0_list = [
-                        torch.lerp(lf0, torch.randn_like(lf0), (vuv_hat < 0.5).float())
-                        for lf0, vuv_hat in zip(lf0_list, vuv_hat_list)
+                        torch.lerp(lf0, noise_lf0, (vuv_hat < 0.5).float())
+                        for lf0, noise_lf0, vuv_hat in zip(
+                            lf0_list, noise_lf0_list, vuv_hat_list
+                        )
                     ]
 
                 output_lf0_list, output_vuv_list, output_vol_list = self.predictor(
