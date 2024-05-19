@@ -27,6 +27,7 @@ class DatasetConfig:
     frame_rate: float
     prepost_silence_length: int
     max_sampling_length: Optional[int]
+    with_datawise_t: bool
     train_num: Optional[int]
     test_num: int
     seed: int = 0
@@ -100,4 +101,5 @@ class Config:
 
 
 def backward_compatible(d: Dict[str, Any]):
-    pass
+    if "with_datawise_t" not in d["dataset"]:
+        d["dataset"]["with_datawise_t"] = False

@@ -101,7 +101,9 @@ class Generator(nn.Module):
                     accent_list=accent_list,
                     phoneme_list=phoneme_list,
                     speaker_id=speaker_id,
-                    t=t[i].expand(len(lf0_list)),
+                    lf0_t_list=[t[i].expand(len(lf0), 1) for lf0 in lf0_list],
+                    vuv_t_list=[t[i].expand(len(vuv), 1) for vuv in vuv_list],
+                    vol_t_list=[t[i].expand(len(vol), 1) for vol in vol_list],
                 )
 
                 if return_every_step:

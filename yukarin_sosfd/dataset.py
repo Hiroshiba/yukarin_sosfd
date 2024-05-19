@@ -86,7 +86,9 @@ class DatasetOutput(TypedDict):
     voiced: Tensor
     silence: Tensor
     speaker_id: Tensor
-    t: Tensor
+    lf0_t: Tensor
+    vuv_t: Tensor
+    vol_t: Tensor
 
 
 def make_frame_array(values: numpy.ndarray, indexes: numpy.ndarray, max_length: int):
@@ -109,9 +111,10 @@ def preprocess(
     frame_rate: float,
     prepost_silence_length: int,
     max_sampling_length: Optional[int],
+    with_datawise_t: bool,
 ):
     # 音量を計算
-    volume = calc_volume(d.wave, frame_rate=frame_rate)
+    volume = calc_volume(d.wave, frame_rate=frame_rate).reshape(-1, 1)
 
     # 長さを揃える
     lf0 = d.lf0.resample(frame_rate).astype(numpy.float64)
@@ -202,26 +205,33 @@ def preprocess(
         length = max_sampling_length
 
     # 正規化・ノイズ付与
-    t = sigmoid(numpy.random.randn())
+    if not with_datawise_t:
+        lf0_t = numpy.full((length, 1), sigmoid(numpy.random.randn()))
+        vuv_t = lf0_t
+        vol_t = lf0_t
+    else:
+        lf0_t = sigmoid(numpy.random.randn(length, 1))
+        vuv_t = sigmoid(numpy.random.randn(length, 1))
+        vol_t = sigmoid(numpy.random.randn(length, 1))
 
     target_lf0 = (lf0 - statistics.lf0_mean[speaker_id]) / statistics.lf0_std[
         speaker_id
     ]
     noise_lf0 = numpy.random.randn(*lf0.shape)
-    input_lf0 = noise_lf0 + t * (target_lf0 - noise_lf0)
+    input_lf0 = noise_lf0 + lf0_t * (target_lf0 - noise_lf0)
     input_lf0[~voiced] = noise_lf0[~voiced]
 
     target_vuv = (
         voiced.astype(numpy.float64) - statistics.vuv_mean[speaker_id]
     ) / statistics.vuv_std[speaker_id]
     noise_vuv = numpy.random.randn(*voiced.shape)
-    input_vuv = noise_vuv + t * (target_vuv - noise_vuv)
+    input_vuv = noise_vuv + vuv_t * (target_vuv - noise_vuv)
 
     target_vol = (volume - statistics.vol_mean[speaker_id]) / statistics.vol_std[
         speaker_id
     ]
     noise_vol = numpy.random.randn(*volume.shape)
-    input_vol = noise_vol + t * (target_vol - noise_vol)
+    input_vol = noise_vol + vol_t * (target_vol - noise_vol)
 
     output_data = DatasetOutput(
         input_lf0=torch.from_numpy(input_lf0.reshape(-1, 1)).float(),
@@ -238,7 +248,9 @@ def preprocess(
         voiced=torch.from_numpy(voiced),
         silence=torch.from_numpy(silence),
         speaker_id=torch.tensor(speaker_id),
-        t=torch.tensor(t).float(),
+        lf0_t=torch.from_numpy(lf0_t.reshape(-1, 1)).float(),
+        vuv_t=torch.from_numpy(vuv_t.reshape(-1, 1)).float(),
+        vol_t=torch.from_numpy(vol_t.reshape(-1, 1)).float(),
     )
     return output_data
 
@@ -251,6 +263,7 @@ class FeatureTargetDataset(Dataset):
         frame_rate: float,
         prepost_silence_length: int,
         max_sampling_length: Optional[int],
+        with_datawise_t: bool,
     ):
         self.datas = datas
         self.preprocessor = partial(
@@ -259,6 +272,7 @@ class FeatureTargetDataset(Dataset):
             frame_rate=frame_rate,
             prepost_silence_length=prepost_silence_length,
             max_sampling_length=max_sampling_length,
+            with_datawise_t=with_datawise_t,
         )
 
     def __len__(self):
@@ -345,6 +359,7 @@ def create_dataset(config: DatasetConfig):
             frame_rate=config.frame_rate,
             prepost_silence_length=config.prepost_silence_length,
             max_sampling_length=(config.max_sampling_length if not is_eval else None),
+            with_datawise_t=config.with_datawise_t,
         )
         return dataset
 

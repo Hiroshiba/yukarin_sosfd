@@ -44,7 +44,9 @@ class Model(nn.Module):
             accent_list=data["accent"],
             phoneme_list=data["phoneme"],
             speaker_id=torch.stack(data["speaker_id"]),
-            t=torch.stack(data["t"]),
+            lf0_t_list=data["lf0_t"],
+            vuv_t_list=data["vuv_t"],
+            vol_t_list=data["vol_t"],
         )
 
         output_lf0 = torch.cat(output_lf0_list)

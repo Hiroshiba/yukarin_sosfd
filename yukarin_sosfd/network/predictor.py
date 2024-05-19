@@ -34,8 +34,8 @@ class Predictor(nn.Module):
         )
 
         input_size = (
-            1 + 1 + 1 + 4 + phoneme_embedding_size + speaker_embedding_size + 1
-        )  # lf0 + vuv + volume + accent + phoneme + speaker + t
+            1 + 1 + 1 + 4 + phoneme_embedding_size + speaker_embedding_size + 1 + 1 + 1
+        )  # lf0 + vuv + volume + accent + phoneme + speaker + lf0_t + vuv_t + vol_t
         self.pre = torch.nn.Linear(input_size, hidden_size)
 
         self.encoder = encoder
@@ -72,7 +72,9 @@ class Predictor(nn.Module):
         accent_list: List[Tensor],  # [(L, 4)]
         phoneme_list: List[Tensor],  # [(L, 1)]
         speaker_id: Tensor,  # (B, )
-        t: Tensor,  # (B, )
+        lf0_t_list: List[Tensor],  # [(L, 1)]
+        vuv_t_list: List[Tensor],  # [(L, 1)]
+        vol_t_list: List[Tensor],  # [(L, 1)]
     ):
         """
         B: batch size
@@ -82,8 +84,11 @@ class Predictor(nn.Module):
 
         lf0 = pad_sequence(lf0_list, batch_first=True)  # (B, L, ?)
         vuv = pad_sequence(vuv_list, batch_first=True)  # (B, L, ?)
-        vol = pad_sequence(vol_list, batch_first=True)
+        vol = pad_sequence(vol_list, batch_first=True)  # (B, L, ?)
         accent = pad_sequence(accent_list, batch_first=True)  # (B, L, ?)
+        lf0_t = pad_sequence(lf0_t_list, batch_first=True)  # (B, L, ?)
+        vuv_t = pad_sequence(vuv_t_list, batch_first=True)  # (B, L, ?)
+        vol_t = pad_sequence(vol_t_list, batch_first=True)  # (B, L, ?)
 
         phoneme = pad_sequence(phoneme_list, batch_first=True).squeeze(2)  # (B, L)
         phoneme = self.phoneme_embedder(phoneme)  # (B, L, ?)
@@ -94,9 +99,7 @@ class Predictor(nn.Module):
             speaker_id.shape[0], lf0.shape[1], speaker_id.shape[2]
         )  # (B, L, ?)
 
-        t = t.unsqueeze(dim=1).unsqueeze(dim=2)  # (B, 1, ?)
-        t = t.expand(t.shape[0], lf0.shape[1], t.shape[2])  # (B, L, ?)
-
+        t = torch.cat((lf0_t, vuv_t, vol_t), dim=2)  # (B, L, ?)
         h = torch.cat(
             (lf0, vuv, vol, accent, phoneme, speaker_id, t), dim=2
         )  # (B, L, ?)
@@ -118,7 +121,7 @@ def create_predictor(
 ):
     encoder = Encoder(
         hidden_size=config.hidden_size,
-        condition_size=1 if config.with_condition_t else 0,
+        condition_size=3 if config.with_condition_t else 0,
         block_num=config.block_num,
         dropout_rate=config.dropout_rate,
         positional_dropout_rate=config.positional_dropout_rate,
