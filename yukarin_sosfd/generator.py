@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, List, Union
+from typing import Any, List, Optional, Union
 
 import numpy
 import torch
@@ -13,6 +13,7 @@ from yukarin_sosfd.network.predictor import Predictor, create_predictor
 class GeneratorOutput(TypedDict):
     lf0: Tensor
     vuv: Tensor
+    vol: Tensor
 
 
 def to_tensor(array: Union[Tensor, numpy.ndarray, Any]):
@@ -22,6 +23,20 @@ def to_tensor(array: Union[Tensor, numpy.ndarray, Any]):
         return torch.from_numpy(array)
     else:
         return array
+
+
+def apply(func: callable, *gen: GeneratorOutput) -> GeneratorOutput:
+    return GeneratorOutput(
+        lf0=func(*(g["lf0"] for g in gen)),
+        vuv=func(*(g["vuv"] for g in gen)),
+        vol=func(*(g["vol"] for g in gen)),
+    )
+
+
+def apply_map(
+    func: callable, *gen_list: List[GeneratorOutput]
+) -> List[GeneratorOutput]:
+    return [apply(func, *gen) for gen in zip(*gen_list)]
 
 
 class Generator(nn.Module):
@@ -44,131 +59,131 @@ class Generator(nn.Module):
 
     def forward(
         self,
-        noise_lf0_list: List[Union[numpy.ndarray, Tensor]],
-        noise_vuv_list: List[Union[numpy.ndarray, Tensor]],
-        noise_vol_list: List[Union[numpy.ndarray, Tensor]],
+        input_lf0_list: List[Union[numpy.ndarray, Tensor]],
+        input_vuv_list: List[Union[numpy.ndarray, Tensor]],
+        input_vol_list: List[Union[numpy.ndarray, Tensor]],
+        t_lf0_list: Optional[List[Union[numpy.ndarray, Tensor]]],
+        t_vuv_list: Optional[List[Union[numpy.ndarray, Tensor]]],
+        t_vol_list: Optional[List[Union[numpy.ndarray, Tensor]]],
         accent_list: List[Union[numpy.ndarray, Tensor]],
         phoneme_list: List[Union[numpy.ndarray, Tensor]],
         speaker_id: Union[numpy.ndarray, Tensor],
         step_num: int,
         return_every_step: bool = False,
     ):
-        noise_lf0_list = [
-            to_tensor(noise_lf0).to(self.device) for noise_lf0 in noise_lf0_list
+        def prepare_tensors(
+            array_list: List[Union[numpy.ndarray, Tensor]]
+        ) -> List[Tensor]:
+            return [to_tensor(array).to(self.device) for array in array_list]
+
+        input_list = [
+            GeneratorOutput(lf0=lf0, vuv=vuv, vol=vol)
+            for lf0, vuv, vol in zip(
+                prepare_tensors(input_lf0_list),
+                prepare_tensors(input_vuv_list),
+                prepare_tensors(input_vol_list),
+            )
         ]
-        noise_vuv_list = [
-            to_tensor(noise_vuv).to(self.device) for noise_vuv in noise_vuv_list
-        ]
-        noise_vol_list = [
-            to_tensor(noise_vol).to(self.device) for noise_vol in noise_vol_list
-        ]
-        accent_list = [to_tensor(accent).to(self.device) for accent in accent_list]
-        phoneme_list = [to_tensor(phoneme).to(self.device) for phoneme in phoneme_list]
+        accent_list = prepare_tensors(accent_list)
+        phoneme_list = prepare_tensors(phoneme_list)
         speaker_id = to_tensor(speaker_id).to(self.device)
 
-        t = torch.linspace(0, 1, steps=step_num, device=self.device)
+        num = step_num
+        del step_num
 
-        lf0_list_step = []
-        vuv_list_step = []
-        vol_list_step = []
+        input_t_list = [
+            GeneratorOutput(lf0=t_lf0, vuv=t_vuv, vol=t_vol)
+            for t_lf0, t_vuv, t_vol in zip(
+                (
+                    prepare_tensors(t_lf0_list)
+                    if t_lf0_list is not None
+                    else [torch.zeros_like(input["lf0"]) for input in input_list]
+                ),
+                (
+                    prepare_tensors(t_vuv_list)
+                    if t_vuv_list is not None
+                    else [torch.zeros_like(input["vuv"]) for input in input_list]
+                ),
+                (
+                    prepare_tensors(t_vol_list)
+                    if t_vol_list is not None
+                    else [torch.zeros_like(input["vol"]) for input in input_list]
+                ),
+            )
+        ]
+
+        hat_list_step: List[List[GeneratorOutput]] = []
 
         with torch.inference_mode():
-            lf0_list = [t.clone() for t in noise_lf0_list]
-            vuv_list = [t.clone() for t in noise_vuv_list]
-            vol_list = [t.clone() for t in noise_vol_list]
-            vuv_hat_list = []
+            gen_list = apply_map(lambda x: x.clone(), input_list)
+            hat_list_step.append(
+                self.denorm(
+                    apply_map(lambda x: x.clone(), gen_list), speaker_id=speaker_id
+                )
+            )
 
-            if return_every_step:
-                lf0_list_step.append([t.clone() for t in lf0_list])
-                vuv_list_step.append([t.clone() for t in vuv_list])
-                vol_list_step.append([t.clone() for t in vol_list])
-
-            for i in range(step_num):
+            for i in range(num):
                 if i == 0:
-                    correct_lf0_list = lf0_list
+                    correct_lf0_list = [gen["lf0"] for gen in gen_list]
                 else:
                     correct_lf0_list = [
-                        torch.lerp(lf0, noise_lf0, (vuv_hat < 0.5).float())
-                        for lf0, noise_lf0, vuv_hat in zip(
-                            lf0_list, noise_lf0_list, vuv_hat_list
+                        torch.lerp(gen["lf0"], noise["lf0"], (hat["vuv"] < 0.5).float())
+                        for gen, noise, hat in zip(
+                            gen_list, input_list, hat_list_step[-1]
                         )
                     ]
 
-                output_lf0_list, output_vuv_list, output_vol_list = self.predictor(
+                t_list = apply_map(lambda x: x + (1 - x) * i / num, input_t_list)
+
+                out_lf0_list, out_vuv_list, out_vol_list = self.predictor(
                     lf0_list=correct_lf0_list,
-                    vuv_list=vuv_list,
-                    vol_list=vol_list,
+                    vuv_list=[gen["vuv"] for gen in gen_list],
+                    vol_list=[gen["vol"] for gen in gen_list],
                     accent_list=accent_list,
                     phoneme_list=phoneme_list,
                     speaker_id=speaker_id,
-                    lf0_t_list=[t[i].expand(len(lf0), 1) for lf0 in lf0_list],
-                    vuv_t_list=[t[i].expand(len(vuv), 1) for vuv in vuv_list],
-                    vol_t_list=[t[i].expand(len(vol), 1) for vol in vol_list],
+                    lf0_t_list=[t["lf0"] for t in t_list],
+                    vuv_t_list=[t["vuv"] for t in t_list],
+                    vol_t_list=[t["vol"] for t in t_list],
                 )
 
-                if return_every_step:
-                    lf0_list_step.append(
-                        [
-                            (lf0 + output.unsqueeze(1) * (step_num - i) / step_num)
-                            for lf0, output in zip(lf0_list, output_lf0_list)
-                        ]
+                out_list = [
+                    GeneratorOutput(lf0=out_lf0, vuv=out_vuv, vol=out_vol)
+                    for out_lf0, out_vuv, out_vol in zip(
+                        out_lf0_list, out_vuv_list, out_vol_list
                     )
-                    vuv_list_step.append(
-                        [
-                            (vuv + output.unsqueeze(1) * (step_num - i) / step_num)
-                            for vuv, output in zip(vuv_list, output_vuv_list)
-                        ]
-                    )
-                    vol_list_step.append(
-                        [
-                            (vol + output.unsqueeze(1) * (step_num - i) / step_num)
-                            for vol, output in zip(vol_list, output_vol_list)
-                        ]
-                    )
+                ]
 
-                vuv_hat_list = self._denorm_vuv(
-                    vuv_list=[
-                        (vuv + output.unsqueeze(1) * (step_num - i) / step_num)
-                        for vuv, output in zip(vuv_list, output_vuv_list)
-                    ],
-                    speaker_id_list=speaker_id.split(1),
+                gen_list = apply_map(
+                    lambda x, y, z: x + y.unsqueeze(1) / num * (1 - z),
+                    gen_list,
+                    out_list,
+                    input_t_list,
                 )
 
-                for lf0, vuv, vol, output_lf0, output_vuv, output_vol in zip(
-                    lf0_list,
-                    vuv_list,
-                    vol_list,
-                    output_lf0_list,
-                    output_vuv_list,
-                    output_vol_list,
-                ):
-                    lf0 += output_lf0.unsqueeze(1) / step_num
-                    vuv += output_vuv.unsqueeze(1) / step_num
-                    vol += output_vol.unsqueeze(1) / step_num
+                hat_list_step.append(
+                    self.denorm(
+                        apply_map(
+                            lambda x, y, z: x + y.unsqueeze(1) * (1 - z),
+                            gen_list,
+                            out_list,
+                            t_list,
+                        ),
+                        speaker_id=speaker_id,
+                    )
+                )
+
+        def _to_return(gen_list):
+            return apply_map(lambda x: x.squeeze(1), gen_list)
 
         if not return_every_step:
-            return [
-                GeneratorOutput(
-                    lf0=lf0.squeeze(1), vuv=vuv.squeeze(1), vol=vol.squeeze(1)
-                )
-                for lf0, vuv, vol in zip(lf0_list, vuv_list, vol_list)
-            ]
+            return _to_return(self.denorm(gen_list, speaker_id=speaker_id))
         else:
-            return [
-                [
-                    GeneratorOutput(
-                        lf0=lf0.squeeze(1), vuv=vuv.squeeze(1), vol=vol.squeeze(1)
-                    )
-                    for lf0, vuv, vol in zip(lf0_list, vuv_list, vol_list)
-                ]
-                for lf0_list, vuv_list, vol_list in zip(
-                    lf0_list_step, vuv_list_step, vol_list_step
-                )
-            ]
+            return [_to_return(hat_list) for hat_list in hat_list_step]
 
     def denorm(
         self,
-        output_list: List[GeneratorOutput],
+        out_list: List[GeneratorOutput],
         speaker_id: Union[numpy.ndarray, Tensor],
     ):
         return [
@@ -187,19 +202,6 @@ class Generator(nn.Module):
                 ).float(),
             )
             for output, speaker_id in zip(
-                output_list, to_tensor(speaker_id).to(self.device).split(1)
+                out_list, to_tensor(speaker_id).to(self.device).split(1)
             )
-        ]
-
-    def _denorm_vuv(
-        self,
-        vuv_list: List[Tensor],
-        speaker_id_list: List[Tensor],
-    ):
-        return [
-            (
-                vuv * self.predictor.vuv_std[speaker_id]
-                + self.predictor.vuv_mean[speaker_id]
-            )
-            for vuv, speaker_id in zip(vuv_list, speaker_id_list)
         ]

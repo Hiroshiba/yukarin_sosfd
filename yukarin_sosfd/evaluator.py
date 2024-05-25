@@ -47,9 +47,6 @@ class Evaluator(nn.Module):
             speaker_id=torch.stack(data["speaker_id"]),
             step_num=self.step_num,
         )
-        output_list = self.generator.denorm(
-            output_list, speaker_id=torch.stack(data["speaker_id"])
-        )
 
         output_lf0 = torch.cat([output["lf0"] for output in output_list])
         output_vuv = torch.cat([output["vuv"] for output in output_list])
