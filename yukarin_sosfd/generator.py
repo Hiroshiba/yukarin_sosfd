@@ -67,7 +67,9 @@ class Generator(nn.Module):
         t_vol_list: Optional[List[Union[numpy.ndarray, Tensor]]],
         accent_list: List[Union[numpy.ndarray, Tensor]],
         phoneme_list: List[Union[numpy.ndarray, Tensor]],
-        speaker_id: Union[numpy.ndarray, Tensor],
+        speaker_id1: Union[numpy.ndarray, Tensor],
+        speaker_id2: Union[numpy.ndarray, Tensor],
+        speaker_ratio: float,
         step_num: int,
         return_every_step: bool = False,
     ):
@@ -86,7 +88,8 @@ class Generator(nn.Module):
         ]
         accent_list = prepare_tensors(accent_list)
         phoneme_list = prepare_tensors(phoneme_list)
-        speaker_id = to_tensor(speaker_id).to(self.device)
+        speaker_id1 = to_tensor(speaker_id1).to(self.device)
+        speaker_id2 = to_tensor(speaker_id2).to(self.device)
 
         num = step_num
         del step_num
@@ -118,7 +121,10 @@ class Generator(nn.Module):
             gen_list = apply_map(lambda x: x.clone(), input_list)
             hat_list_step.append(
                 self.denorm(
-                    apply_map(lambda x: x.clone(), gen_list), speaker_id=speaker_id
+                    apply_map(lambda x: x.clone(), gen_list),
+                    speaker_id1=speaker_id1,
+                    speaker_id2=speaker_id2,
+                    speaker_ratio=speaker_ratio,
                 )
             )
 
@@ -141,7 +147,9 @@ class Generator(nn.Module):
                     vol_list=[gen["vol"] for gen in gen_list],
                     accent_list=accent_list,
                     phoneme_list=phoneme_list,
-                    speaker_id=speaker_id,
+                    speaker_id1=speaker_id1,
+                    speaker_id2=speaker_id2,
+                    speaker_ratio=speaker_ratio,
                     lf0_t_list=[t["lf0"] for t in t_list],
                     vuv_t_list=[t["vuv"] for t in t_list],
                     vol_t_list=[t["vol"] for t in t_list],
@@ -169,7 +177,9 @@ class Generator(nn.Module):
                             out_list,
                             t_list,
                         ),
-                        speaker_id=speaker_id,
+                        speaker_id1=speaker_id1,
+                        speaker_id2=speaker_id2,
+                        speaker_ratio=speaker_ratio,
                     )
                 )
 
@@ -177,31 +187,75 @@ class Generator(nn.Module):
             return apply_map(lambda x: x.squeeze(1), gen_list)
 
         if not return_every_step:
-            return _to_return(self.denorm(gen_list, speaker_id=speaker_id))
+            return _to_return(
+                self.denorm(
+                    gen_list,
+                    speaker_id1=speaker_id1,
+                    speaker_id2=speaker_id2,
+                    speaker_ratio=speaker_ratio,
+                )
+            )
         else:
             return [_to_return(hat_list) for hat_list in hat_list_step]
 
     def denorm(
         self,
         out_list: List[GeneratorOutput],
-        speaker_id: Union[numpy.ndarray, Tensor],
+        speaker_id1: Union[numpy.ndarray, Tensor],
+        speaker_id2: Union[numpy.ndarray, Tensor],
+        speaker_ratio: float,
     ):
+        def weighted_mean(x, y, ratio):
+            return x * ratio + y * (1 - ratio)
+
+        def weighted_std(x, y, ratio):
+            return (x**2 * ratio + y**2 * (1 - ratio)) ** 0.5
+
         return [
             GeneratorOutput(
                 lf0=(
-                    output["lf0"] * self.predictor.lf0_std[speaker_id]
-                    + self.predictor.lf0_mean[speaker_id]
+                    output["lf0"]
+                    * weighted_std(
+                        self.predictor.lf0_std[speaker_id1],
+                        self.predictor.lf0_std[speaker_id2],
+                        speaker_ratio,
+                    )
+                    + weighted_mean(
+                        self.predictor.lf0_mean[speaker_id1],
+                        self.predictor.lf0_mean[speaker_id2],
+                        speaker_ratio,
+                    )
                 ).float(),
                 vuv=(
-                    output["vuv"] * self.predictor.vuv_std[speaker_id]
-                    + self.predictor.vuv_mean[speaker_id]
+                    output["vuv"]
+                    * weighted_std(
+                        self.predictor.vuv_std[speaker_id1],
+                        self.predictor.vuv_std[speaker_id2],
+                        speaker_ratio,
+                    )
+                    + weighted_mean(
+                        self.predictor.vuv_mean[speaker_id1],
+                        self.predictor.vuv_mean[speaker_id2],
+                        speaker_ratio,
+                    )
                 ).float(),
                 vol=(
-                    output["vol"] * self.predictor.vol_std[speaker_id]
-                    + self.predictor.vol_mean[speaker_id]
+                    output["vol"]
+                    * weighted_std(
+                        self.predictor.vol_std[speaker_id1],
+                        self.predictor.vol_std[speaker_id2],
+                        speaker_ratio,
+                    )
+                    + weighted_mean(
+                        self.predictor.vol_mean[speaker_id1],
+                        self.predictor.vol_mean[speaker_id2],
+                        speaker_ratio,
+                    )
                 ).float(),
             )
-            for output, speaker_id in zip(
-                out_list, to_tensor(speaker_id).to(self.device).split(1)
+            for output, speaker_id1, speaker_id2 in zip(
+                out_list,
+                to_tensor(speaker_id1).to(self.device).split(1),
+                to_tensor(speaker_id2).to(self.device).split(1),
             )
         ]

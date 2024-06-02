@@ -71,7 +71,9 @@ class Predictor(nn.Module):
         vol_list: List[Tensor],  # [(L, 1)]
         accent_list: List[Tensor],  # [(L, 4)]
         phoneme_list: List[Tensor],  # [(L, 1)]
-        speaker_id: Tensor,  # (B, )
+        speaker_id1: Tensor,  # (B, )
+        speaker_id2: Tensor,  # (B, )
+        speaker_ratio: float,
         lf0_t_list: List[Tensor],  # [(L, 1)]
         vuv_t_list: List[Tensor],  # [(L, 1)]
         vol_t_list: List[Tensor],  # [(L, 1)]
@@ -93,7 +95,9 @@ class Predictor(nn.Module):
         phoneme = pad_sequence(phoneme_list, batch_first=True).squeeze(2)  # (B, L)
         phoneme = self.phoneme_embedder(phoneme)  # (B, L, ?)
 
-        speaker_id = self.speaker_embedder(speaker_id)
+        speaker_id1 = self.speaker_embedder(speaker_id1)
+        speaker_id2 = self.speaker_embedder(speaker_id2)
+        speaker_id = speaker_id1 * speaker_ratio + speaker_id2 * (1 - speaker_ratio)
         speaker_id = speaker_id.unsqueeze(dim=1)  # (B, 1, ?)
         speaker_id = speaker_id.expand(
             speaker_id.shape[0], lf0.shape[1], speaker_id.shape[2]
