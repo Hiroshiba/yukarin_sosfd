@@ -8,13 +8,13 @@ from torch.cuda.amp.autocast_mode import autocast
 from torch.cuda.amp.grad_scaler import GradScaler
 from torch.utils.data import DataLoader
 
-from .config import Config
-from .dataset import create_dataset
-from .evaluator import Evaluator
-from .generator import Generator
-from .model import Model, ModelOutput, reduce_result
-from .network.predictor import create_predictor
-from .utility.pytorch_utility import (
+from yukarin_sosfd.config import Config
+from yukarin_sosfd.dataset import create_dataset
+from yukarin_sosfd.evaluator import Evaluator
+from yukarin_sosfd.generator import Generator
+from yukarin_sosfd.model import Model, ModelOutput, reduce_result
+from yukarin_sosfd.network.predictor import create_predictor
+from yukarin_sosfd.utility.pytorch_utility import (
     collate_list,
     detach_cpu,
     init_weights,
@@ -22,7 +22,7 @@ from .utility.pytorch_utility import (
     make_scheduler,
     to_device,
 )
-from .utility.train_utility import Logger, SaveManager
+from yukarin_sosfd.utility.train_utility import Logger, SaveManager
 
 
 def train(config_yaml_path: Path, output_dir: Path):

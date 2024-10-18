@@ -39,9 +39,12 @@ class Evaluator(nn.Module):
 
     def forward(self, data: DatasetOutput) -> EvaluatorOutput:
         output_list: List[GeneratorOutput] = self.generator(
-            noise_lf0_list=data["noise_lf0"],
-            noise_vuv_list=data["noise_vuv"],
-            noise_vol_list=data["noise_vol"],
+            input_lf0_list=data["noise_lf0"],
+            input_vuv_list=data["noise_vuv"],
+            input_vol_list=data["noise_vol"],
+            t_lf0_list=None,
+            t_vuv_list=None,
+            t_vol_list=None,
             accent_list=data["accent"],
             phoneme_list=data["phoneme"],
             speaker_id=torch.stack(data["speaker_id"]),

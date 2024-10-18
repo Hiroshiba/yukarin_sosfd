@@ -2,8 +2,7 @@ from dataclasses import dataclass
 from functools import partial
 from itertools import groupby
 from multiprocessing import Pool
-from pathlib import Path
-
+from os import PathLike
 import numpy
 from tqdm import tqdm
 
@@ -13,9 +12,9 @@ from ..data.sampling_data import SamplingData
 
 @dataclass
 class StatisticDataInput:
-    lf0_path: Path
-    wave_path: Path
-    silence_path: Path
+    lf0_path: PathLike
+    wave_path: PathLike
+    silence_path: PathLike
     speaker_id: int
 
 
