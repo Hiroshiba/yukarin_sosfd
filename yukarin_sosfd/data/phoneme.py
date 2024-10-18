@@ -1,13 +1,13 @@
 from abc import abstractmethod
-from enum import Enum
+from os import PathLike
 from pathlib import Path
-from typing import List, Sequence
+from typing import Self
 
 import numpy
 
 
 class BasePhoneme(object):
-    phoneme_list: Sequence[str]
+    phoneme_list: tuple[str, ...]
     num_phoneme: int
     space_phoneme: str
 
@@ -62,11 +62,11 @@ class BasePhoneme(object):
 
     @classmethod
     @abstractmethod
-    def convert(cls, phonemes: List["BasePhoneme"]) -> List["BasePhoneme"]:
+    def convert(cls, phonemes: list[Self]) -> list[Self]:
         pass
 
     @classmethod
-    def verify_list(cls, phonemes: List["BasePhoneme"]):
+    def verify_list(cls: type[Self], phonemes: list[Self]):
         assert phonemes[0].start == 0, f"{phonemes[0]} start must be 0."
         for phoneme in phonemes:
             phoneme.verify()
@@ -74,24 +74,32 @@ class BasePhoneme(object):
             assert pre.end == post.start, f"{pre} and {post} must be continuous."
 
     @classmethod
-    def load_julius_list(cls, path: Path, verify=True):
-        phonemes = [cls.parse(s) for s in path.read_text().split("\n") if len(s) > 0]
+    def loads_julius_list(cls, text: str, verify=True):
+        phonemes = [cls.parse(s) for s in text.split("\n") if len(s) > 0]
         phonemes = cls.convert(phonemes)
 
         if verify:
             try:
                 cls.verify_list(phonemes)
-            except:
-                print(f"{path} is not valid.")
+            except Exception:
                 raise
         return phonemes
 
     @classmethod
-    def save_julius_list(cls, phonemes: List["BasePhoneme"], path: Path, verify=True):
+    def load_julius_list(cls, path: PathLike, verify=True):
+        try:
+            phonemes = cls.loads_julius_list(Path(path).read_text(), verify=verify)
+        except Exception:
+            print(f"{path} is not valid.")
+            raise
+        return phonemes
+
+    @classmethod
+    def save_julius_list(cls, phonemes: list[Self], path: PathLike, verify=True):
         if verify:
             try:
                 cls.verify_list(phonemes)
-            except:
+            except Exception:
                 print(f"{path} is not valid.")
                 raise
 
@@ -103,7 +111,7 @@ class BasePhoneme(object):
                 for p in phonemes
             ]
         )
-        path.write_text(text)
+        Path(path).write_text(text)
 
 
 class OjtPhoneme(BasePhoneme):
@@ -158,7 +166,7 @@ class OjtPhoneme(BasePhoneme):
     space_phoneme = "pau"
 
     @classmethod
-    def convert(cls, phonemes: List["OjtPhoneme"]):
+    def convert(cls, phonemes: list[Self]):
         if "sil" in phonemes[0].phoneme:
             phonemes[0].phoneme = cls.space_phoneme
         if "sil" in phonemes[-1].phoneme:

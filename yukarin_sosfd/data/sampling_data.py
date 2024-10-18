@@ -1,8 +1,7 @@
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
-from typing import Dict, Optional, Sequence, Union
+from os import PathLike
 
 import librosa
 import numpy
@@ -30,7 +29,7 @@ class SamplingData:
         self,
         sampling_rate: float,
         index: int = 0,
-        length: int = None,
+        length: int | None = None,
         kind: ResampleInterpolateKind = ResampleInterpolateKind.nearest,
     ):
         if length is None:
@@ -52,7 +51,7 @@ class SamplingData:
 
     def split(
         self,
-        keypoint_seconds: Union[Sequence[float], numpy.ndarray],
+        keypoint_seconds: list[float] | numpy.ndarray,
     ):
         keypoint_seconds = numpy.array(keypoint_seconds)
         indexes = (keypoint_seconds * self.rate).astype(numpy.int32)
@@ -70,7 +69,7 @@ class SamplingData:
         return value[numpy.newaxis]
 
     @staticmethod
-    def padding(datas: Sequence["SamplingData"], padding_value: numpy.ndarray):
+    def padding(datas: list["SamplingData"], padding_value: numpy.ndarray):
         datas = deepcopy(datas)
 
         max_length = max(len(d.array) for d in datas)
@@ -86,9 +85,9 @@ class SamplingData:
 
     @staticmethod
     def collect(
-        datas: Sequence["SamplingData"], rate: int, mode: str, error_time_length: float
+        datas: list["SamplingData"], rate: int, mode: str, error_time_length: float
     ):
-        arrays: Sequence[numpy.ndarray] = [
+        arrays: list[numpy.ndarray] = [
             d.resample(
                 sampling_rate=rate, index=0, length=int(len(d.array) * rate / d.rate)
             )
@@ -143,8 +142,8 @@ class SamplingData:
         frame_length: int,
         hop_length: int,
         centering: bool,
-        padding_value: Optional[int],
-        padding_mode: Optional[str],
+        padding_value: int | None,
+        padding_mode: str | None,
         degenerate_type: DegenerateType,
     ):
         array = self.array
@@ -176,8 +175,8 @@ class SamplingData:
         return SamplingData(array=array, rate=self.rate / hop_length)
 
     @classmethod
-    def load(cls, path: Path):
-        d: Dict = numpy.load(str(path), allow_pickle=True).item()
+    def load(cls, path: PathLike):
+        d: dict = numpy.load(str(path), allow_pickle=True).item()
         array, rate = d["array"], d["rate"]
 
         if array.ndim == 1:
@@ -185,5 +184,5 @@ class SamplingData:
 
         return cls(array=array, rate=rate)
 
-    def save(self, path: Path):
+    def save(self, path: PathLike):
         numpy.save(str(path), dict(array=self.array, rate=self.rate))

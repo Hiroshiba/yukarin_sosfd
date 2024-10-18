@@ -1,7 +1,7 @@
 import librosa
 import numpy
 
-from yukarin_sosfd.data.sampling_data import SamplingData
+from ..data.sampling_data import SamplingData
 
 
 def get_notsilence_range(silence: numpy.ndarray, prepost_silence_length: int):

@@ -7,7 +7,7 @@ from typing import Optional
 from torch import Tensor, nn
 from torch.nn import LayerNorm
 
-from yukarin_sosfd.network.transformer.attention import MultiHeadedAttention
+from ...network.transformer.attention import MultiHeadedAttention
 
 
 class EncoderLayer(nn.Module):

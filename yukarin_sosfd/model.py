@@ -5,9 +5,9 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 from typing_extensions import TypedDict
 
-from yukarin_sosfd.config import ModelConfig
-from yukarin_sosfd.dataset import DatasetOutput
-from yukarin_sosfd.network.predictor import Predictor
+from .config import ModelConfig
+from .dataset import DatasetOutput
+from .network.predictor import Predictor
 
 
 class ModelOutput(TypedDict):

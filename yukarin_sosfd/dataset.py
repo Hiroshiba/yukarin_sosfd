@@ -1,8 +1,8 @@
 import json
 from dataclasses import dataclass
 from functools import partial
+from os import PathLike
 from pathlib import Path
-from typing import Dict, List, Optional, Union
 
 import numpy
 import torch
@@ -10,12 +10,12 @@ from torch import Tensor
 from torch.utils.data import Dataset
 from typing_extensions import TypedDict
 
-from yukarin_sosfd.config import DatasetConfig, DatasetFileConfig
-from yukarin_sosfd.data.data import calc_volume, get_notsilence_range
-from yukarin_sosfd.data.phoneme import OjtPhoneme
-from yukarin_sosfd.data.sampling_data import SamplingData
-from yukarin_sosfd.data.statistic import DataStatistics, calc_statistics
-from yukarin_sosfd.utility.dataset_utility import get_stem_to_paths
+from .config import DatasetConfig, DatasetFileConfig
+from .data.data import calc_volume, get_notsilence_range
+from .data.phoneme import OjtPhoneme
+from .data.sampling_data import SamplingData
+from .data.statistic import DataStatistics, calc_statistics
+from .utility.dataset_utility import CachePath, get_stem_to_paths
 
 
 @dataclass
@@ -26,21 +26,21 @@ class DatasetInput:
     end_accent_list: numpy.ndarray
     start_accent_phrase_list: numpy.ndarray
     end_accent_phrase_list: numpy.ndarray
-    phoneme_list: List[OjtPhoneme]
+    phoneme_list: list[OjtPhoneme]
     silence: SamplingData
     speaker_id: int
 
 
 @dataclass
 class LazyDatasetInput:
-    lf0_path: Path
-    wave_path: Path
-    start_accent_list_path: Path
-    end_accent_list_path: Path
-    start_accent_phrase_list_path: Path
-    end_accent_phrase_list_path: Path
-    phoneme_list_path: Path
-    silence_path: Path
+    lf0_path: PathLike
+    wave_path: PathLike
+    start_accent_list_path: PathLike
+    end_accent_list_path: PathLike
+    start_accent_phrase_list_path: PathLike
+    end_accent_phrase_list_path: PathLike
+    phoneme_list_path: PathLike
+    silence_path: PathLike
     speaker_id: int
 
     def generate(self):
@@ -48,21 +48,29 @@ class LazyDatasetInput:
             lf0=SamplingData.load(self.lf0_path),
             wave=SamplingData.load(self.wave_path),
             start_accent_list=numpy.array(
-                [bool(int(s)) for s in self.start_accent_list_path.read_text().split()]
+                [
+                    bool(int(s))
+                    for s in Path(self.start_accent_list_path).read_text().split()
+                ]
             ),
             end_accent_list=numpy.array(
-                [bool(int(s)) for s in self.end_accent_list_path.read_text().split()]
+                [
+                    bool(int(s))
+                    for s in Path(self.end_accent_list_path).read_text().split()
+                ]
             ),
             start_accent_phrase_list=numpy.array(
                 [
                     bool(int(s))
-                    for s in self.start_accent_phrase_list_path.read_text().split()
+                    for s in Path(self.start_accent_phrase_list_path)
+                    .read_text()
+                    .split()
                 ]
             ),
             end_accent_phrase_list=numpy.array(
                 [
                     bool(int(s))
-                    for s in self.end_accent_phrase_list_path.read_text().split()
+                    for s in Path(self.end_accent_phrase_list_path).read_text().split()
                 ]
             ),
             phoneme_list=OjtPhoneme.load_julius_list(self.phoneme_list_path),
@@ -101,16 +109,16 @@ def make_frame_array(values: numpy.ndarray, indexes: numpy.ndarray, max_length: 
     return frame_array
 
 
-def sigmoid(a: Union[float, numpy.ndarray]):
+def sigmoid(a: float | numpy.ndarray):
     return 1 / (1 + numpy.exp(-a))
 
 
 def preprocess(
     d: DatasetInput,
-    statistics: Optional[DataStatistics],
+    statistics: DataStatistics,
     frame_rate: float,
     prepost_silence_length: int,
-    max_sampling_length: Optional[int],
+    max_sampling_length: int | None,
     with_datawise_t: bool,
 ):
     # 音量を計算
@@ -224,7 +232,7 @@ def preprocess(
     target_vuv = (
         voiced.astype(numpy.float64) - statistics.vuv_mean[speaker_id]
     ) / statistics.vuv_std[speaker_id]
-    noise_vuv = numpy.random.randn(*voiced.shape)
+    noise_vuv: numpy.ndarray = numpy.random.randn(*voiced.shape)
     input_vuv = noise_vuv + vuv_t * (target_vuv - noise_vuv)
 
     target_vol = (volume - statistics.vol_mean[speaker_id]) / statistics.vol_std[
@@ -258,11 +266,11 @@ def preprocess(
 class FeatureTargetDataset(Dataset):
     def __init__(
         self,
-        datas: list[Union[DatasetInput, LazyDatasetInput]],
-        statistics: Optional[DataStatistics],
+        datas: list[DatasetInput | LazyDatasetInput],
+        statistics: DataStatistics,
         frame_rate: float,
         prepost_silence_length: int,
-        max_sampling_length: Optional[int],
+        max_sampling_length: int | None,
         with_datawise_t: bool,
     ):
         self.datas = datas
@@ -307,7 +315,7 @@ def get_datas(config: DatasetFileConfig):
         config.silence_glob,
     )
 
-    fn_each_speaker: Dict[str, List[str]] = json.loads(
+    fn_each_speaker: dict[str, list[str]] = json.loads(
         config.speaker_dict_path.read_text()
     )
     speaker_ids = {
@@ -319,14 +327,14 @@ def get_datas(config: DatasetFileConfig):
 
     datas = [
         LazyDatasetInput(
-            lf0_path=lf0_paths[fn],
-            wave_path=wave_paths[fn],
-            start_accent_list_path=start_accent_list_paths[fn],
-            end_accent_list_path=end_accent_list_paths[fn],
-            start_accent_phrase_list_path=start_accent_phrase_list_paths[fn],
-            end_accent_phrase_list_path=end_accent_phrase_list_paths[fn],
-            phoneme_list_path=phoneme_list_paths[fn],
-            silence_path=silence_paths[fn],
+            lf0_path=CachePath(lf0_paths[fn]),
+            wave_path=CachePath(wave_paths[fn]),
+            start_accent_list_path=CachePath(start_accent_list_paths[fn]),
+            end_accent_list_path=CachePath(end_accent_list_paths[fn]),
+            start_accent_phrase_list_path=CachePath(start_accent_phrase_list_paths[fn]),
+            end_accent_phrase_list_path=CachePath(end_accent_phrase_list_paths[fn]),
+            phoneme_list_path=CachePath(phoneme_list_paths[fn]),
+            silence_path=CachePath(silence_paths[fn]),
             speaker_id=speaker_ids[fn],
         )
         for fn in fn_list

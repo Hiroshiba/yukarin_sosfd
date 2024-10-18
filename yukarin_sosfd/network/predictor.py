@@ -4,10 +4,10 @@ import torch
 from torch import Tensor, nn
 from torch.nn.utils.rnn import pad_sequence
 
-from yukarin_sosfd.config import NetworkConfig
-from yukarin_sosfd.data.statistic import DataStatistics
-from yukarin_sosfd.network.conformer.encoder import Encoder
-from yukarin_sosfd.network.transformer.utility import make_non_pad_mask
+from ..config import NetworkConfig
+from ..data.statistic import DataStatistics
+from ..network.conformer.encoder import Encoder
+from ..network.transformer.utility import make_non_pad_mask
 
 
 class Predictor(nn.Module):

@@ -6,8 +6,8 @@ import torch
 from torch import Tensor, nn
 from typing_extensions import TypedDict
 
-from yukarin_sosfd.config import Config
-from yukarin_sosfd.network.predictor import Predictor, create_predictor
+from .config import Config
+from .network.predictor import Predictor, create_predictor
 
 
 class GeneratorOutput(TypedDict):

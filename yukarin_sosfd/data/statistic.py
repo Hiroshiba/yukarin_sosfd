@@ -7,8 +7,8 @@ from pathlib import Path
 import numpy
 from tqdm import tqdm
 
-from yukarin_sosfd.data.data import calc_volume, get_notsilence_range
-from yukarin_sosfd.data.sampling_data import SamplingData
+from ..data.data import calc_volume, get_notsilence_range
+from ..data.sampling_data import SamplingData
 
 
 @dataclass
@@ -45,7 +45,7 @@ def _trim_prepost_silence(
     return array[notsilence_range]
 
 
-def _preprocess(d: StatisticDataInput, frame_rate: int, prepost_silence_length: int):
+def _preprocess(d: StatisticDataInput, frame_rate: float, prepost_silence_length: int):
     silence_data = SamplingData.load(d.silence_path)
 
     lf0_data = SamplingData.load(d.lf0_path)
@@ -70,7 +70,7 @@ def _preprocess(d: StatisticDataInput, frame_rate: int, prepost_silence_length: 
 
 
 def calc_statistics(
-    ds: list[StatisticDataInput], frame_rate: int, prepost_silence_length: int
+    ds: list[StatisticDataInput], frame_rate: float, prepost_silence_length: int
 ) -> DataStatistics:
     """話者ごとの統計情報を取得"""
     max_speaker_id = max(d.speaker_id for d in ds)

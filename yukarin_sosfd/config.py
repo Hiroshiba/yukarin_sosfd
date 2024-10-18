@@ -3,8 +3,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from yukarin_sosfd.utility import dataclass_utility
-from yukarin_sosfd.utility.git_utility import get_branch_name, get_commit_id
+from .utility import dataclass_utility
+from .utility.git_utility import get_branch_name, get_commit_id
 
 
 @dataclass

@@ -5,8 +5,8 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 from typing_extensions import Literal, TypedDict
 
-from yukarin_sosfd.dataset import DatasetOutput
-from yukarin_sosfd.generator import Generator, GeneratorOutput
+from .dataset import DatasetOutput
+from .generator import Generator, GeneratorOutput
 
 
 class EvaluatorOutput(TypedDict):
